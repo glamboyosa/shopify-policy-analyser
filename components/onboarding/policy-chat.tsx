@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +21,48 @@ type PolicyChatProps = {
   messages: ChatMessage[];
   onAsk: (question: string) => Promise<void>;
 };
+
+/**
+ * Renders assistant message content as safe markdown.
+ *
+ * @param text - Assistant response text, potentially markdown formatted.
+ * @returns Markdown-rendered content with chat-friendly styles.
+ */
+function AssistantMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+        ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
+        li: ({ children }) => <li className="mb-1">{children}</li>,
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-primary underline"
+          >
+            {children}
+          </a>
+        ),
+        code: ({ children }) => (
+          <code className="rounded bg-background/70 px-1 py-0.5 font-mono text-[11px]">
+            {children}
+          </code>
+        ),
+        pre: ({ children }) => (
+          <pre className="mb-2 overflow-x-auto rounded bg-background/70 p-2 font-mono text-[11px]">
+            {children}
+          </pre>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
 
 export function PolicyChat({
   storeId,
@@ -78,7 +122,11 @@ export function PolicyChat({
                 <strong className="mr-1">
                   {message.role === "user" ? "You:" : "Assistant:"}
                 </strong>
-                {message.text}
+                {message.role === "assistant" ? (
+                  <AssistantMarkdown text={message.text} />
+                ) : (
+                  message.text
+                )}
               </div>
             ))
           )}
