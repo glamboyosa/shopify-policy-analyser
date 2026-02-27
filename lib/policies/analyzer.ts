@@ -15,6 +15,8 @@ import { storePolicies, stores } from "@/lib/db/schema";
 const POLICY_REGEX = /shipping|return|refund|policy|exchange/i;
 const HOMEPAGE_LINK_REGEX =
   /shipping|return|refund|policy|exchange|support|help|happyreturns/i;
+const POLICY_CONTENT_REGEX =
+  /shipping|return|refund|exchange|free shipping|delivery|window|final sale/i;
 const BLOCKED_PATH_PREFIXES = ["/products/", "/collections/"];
 const BLOCKED_FILE_EXTENSIONS = [
   ".js",
@@ -39,6 +41,7 @@ const KNOWN_POLICY_PATHS = [
   "/policies/refund-policy",
   "/policies/exchange-policy",
 ];
+const BLOCKED_POLICY_PATH_REGEX = /(privacy|cookie|terms|accessibility)/i;
 
 const BROWSERISH_HEADERS = {
   "user-agent":
@@ -142,10 +145,43 @@ function shouldIncludePolicyUrl(urlString: string): boolean {
       return false;
     }
 
+    if (BLOCKED_POLICY_PATH_REGEX.test(path)) {
+      return false;
+    }
+
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Checks whether extracted text appears relevant to shipping/returns policies.
+ *
+ * @param text - Extracted plain text for a candidate page.
+ * @returns True when text contains policy-like language.
+ */
+function isPolicyLikeText(text: string): boolean {
+  return POLICY_CONTENT_REGEX.test(text);
+}
+
+/**
+ * Detects HTML patterns that indicate policy content is likely JS-embedded.
+ *
+ * @param html - Raw page HTML.
+ * @returns True when static HTML looks like an app shell rather than content.
+ */
+function isEmbeddedPolicyShell(html: string): boolean {
+  const embeddedMarkers = [
+    "ghc-main-wrapper",
+    "ghc-embedded",
+    "help-center",
+    "data-reactroot",
+    "__NEXT_DATA__",
+  ];
+
+  const lowerHtml = html.toLowerCase();
+  return embeddedMarkers.some((marker) => lowerHtml.includes(marker));
 }
 
 /**
@@ -567,6 +603,12 @@ async function scrapePolicyPages(
       } else {
         const html = await res.text();
         console.info(`[readability] fetched html for ${url} (len=${html.length})`);
+
+        if (isEmbeddedPolicyShell(html)) {
+          console.info(
+            `[readability] detected embedded app shell for ${url}; preferring Firecrawl`,
+          );
+        } else {
         text = extractReadableText(html, url);
         if (text) {
           console.info(
@@ -576,6 +618,7 @@ async function scrapePolicyPages(
           );
         } else {
           console.warn(`[readability] parse returned empty text for ${url}`);
+        }
         }
       }
     } catch (error) {
@@ -598,6 +641,13 @@ async function scrapePolicyPages(
           .slice(0, 180)
           .replace(/\s+/g, " ")}")`,
       );
+    }
+
+    if (!isPolicyLikeText(text)) {
+      console.warn(
+        `[scrape] skipping ${url} because extracted text looks unrelated to shipping/returns`,
+      );
+      continue;
     }
 
     successfulUrls.push(url);
@@ -885,12 +935,29 @@ export async function createStore(input: {
   if (existingStore) {
     const existingPolicy = await db.query.storePolicies.findFirst({
       where: eq(storePolicies.store_id, existingStore.id),
-      columns: { id: true },
+      orderBy: [desc(storePolicies.analyzed_at), desc(storePolicies.id)],
+      columns: {
+        id: true,
+        return_window_days: true,
+        return_window_desc: true,
+        free_shipping_threshold: true,
+        non_returnable_items: true,
+        exchanges_available: true,
+      },
     });
+
+    const hasUsablePolicy = Boolean(
+      existingPolicy &&
+        (existingPolicy.return_window_days !== null ||
+          Boolean(existingPolicy.return_window_desc) ||
+          Boolean(existingPolicy.free_shipping_threshold) ||
+          (existingPolicy.non_returnable_items?.length ?? 0) > 0 ||
+          existingPolicy.exchanges_available !== null),
+    );
 
     return {
       storeId: existingStore.id,
-      status: existingPolicy ? "ready" : "analyzing",
+      status: hasUsablePolicy ? "ready" : "analyzing",
       reused: true,
     };
   }
