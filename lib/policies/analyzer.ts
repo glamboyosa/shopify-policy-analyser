@@ -800,6 +800,27 @@ export function buildOnboardingInsights(policy: {
   const summaryCard: string[] = [];
   const warnings: string[] = [];
 
+  /**
+   * Normalizes free-shipping threshold text into user-friendly wording.
+   *
+   * @param rawThreshold - Raw extracted threshold value.
+   * @returns Readable summary sentence fragment.
+   */
+  function formatFreeShippingThreshold(rawThreshold: string): string {
+    const cleaned = rawThreshold.trim();
+    const numericMatch = cleaned.match(/^[$€£]?\s*\d+(?:[.,]\d{1,2})?$/);
+    if (numericMatch) {
+      const withCurrency = /^[$€£]/.test(cleaned) ? cleaned : `$${cleaned}`;
+      return `Free shipping on orders over ${withCurrency.replace(/\s+/g, "")}`;
+    }
+
+    const lower = cleaned.toLowerCase();
+    if (/(over|above|more than|at least|minimum|orders? over)/.test(lower)) {
+      return `Free shipping ${cleaned}`;
+    }
+    return `Free shipping: ${cleaned}`;
+  }
+
   if (policy.return_window_days) {
     summaryCard.push(
       `Returns accepted within ${policy.return_window_days} days of delivery`,
@@ -814,7 +835,7 @@ export function buildOnboardingInsights(policy: {
   }
 
   if (policy.free_shipping_threshold) {
-    summaryCard.push(`Free shipping: ${policy.free_shipping_threshold}`);
+    summaryCard.push(formatFreeShippingThreshold(policy.free_shipping_threshold));
   }
 
   if ((policy.non_returnable_items?.length ?? 0) > 0) {
