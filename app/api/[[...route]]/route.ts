@@ -39,8 +39,9 @@ app.post("/stores", async (c) => {
     {
       store_id: created.storeId,
       status: created.status,
+      reused: created.reused,
     },
-    201,
+    created.reused ? 200 : 201,
   );
 });
 

@@ -159,9 +159,13 @@ function OnboardingContent() {
     });
 
     setStoreId(created.store_id);
-    setAnalysisCompleted(false);
+    setAnalysisCompleted(created.status === "ready");
     setChatMessages([]);
-    setStreamRun((count) => count + 1);
+    if (created.status === "analyzing") {
+      setStreamRun((count) => count + 1);
+    } else {
+      setStreamRun(0);
+    }
     queryClient.removeQueries({ queryKey: ["store-policy"] });
   }
 

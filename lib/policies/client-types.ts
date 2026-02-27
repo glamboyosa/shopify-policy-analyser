@@ -31,7 +31,8 @@ export type ChatMessage = {
 
 export type CreateStoreResponse = {
   store_id: string;
-  status: string;
+  status: "analyzing" | "ready";
+  reused: boolean;
 };
 
 export type AskPolicyResponse = {

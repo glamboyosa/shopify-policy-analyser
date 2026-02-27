@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -31,6 +33,14 @@ export function StreamTimeline({ events }: StreamTimelineProps) {
   const visibleEvents = events.filter((event) => event.event !== "error");
   const progressPercent = getProgressPercent(events);
   const streamError = events.find((event) => event.event === "error");
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!scrollContainerRef.current) {
+      return;
+    }
+    scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+  }, [visibleEvents.length]);
 
   return (
     <Card>
@@ -48,7 +58,10 @@ export function StreamTimeline({ events }: StreamTimelineProps) {
           />
         </div>
 
-        <div className="max-h-56 space-y-2 overflow-auto rounded border p-3">
+        <div
+          ref={scrollContainerRef}
+          className="max-h-56 space-y-2 overflow-auto rounded border p-3"
+        >
           {visibleEvents.length === 0 ? (
             <p className="text-muted-foreground">No events yet. Start an analysis run.</p>
           ) : (

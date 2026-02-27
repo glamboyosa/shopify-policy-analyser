@@ -3,7 +3,7 @@ import Firecrawl from "@mendable/firecrawl-js";
 import { generateText, Output } from "ai";
 import { load } from "cheerio";
 import { and, desc, eq } from "drizzle-orm";
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { parseStringPromise } from "xml2js";
 import { z } from "zod";
@@ -47,6 +47,9 @@ const BROWSERISH_HEADERS = {
   "accept-language": "en-US,en;q=0.9",
   "cache-control": "no-cache",
 };
+const EXTRACTION_INPUT_MAX_CHARS = 12000;
+const EXTRACTION_SOURCE_MAX_CHARS = 2200;
+const EXTRACTION_TIMEOUT_MS = 60000;
 
 const extractedPolicySchema = z.object({
   confidence: z.string().nullable().optional(),
@@ -97,6 +100,7 @@ export type StreamEmitter = (
 ) => Promise<void>;
 
 type ExtractedPolicy = z.infer<typeof extractedPolicySchema>;
+type PolicySection = { url: string; text: string };
 
 /**
  * Builds homepage URL variants to improve fetch success across host configs.
@@ -418,12 +422,59 @@ export async function findPolicyUrls(storeUrl: string): Promise<{
  */
 function extractReadableText(html: string, url: string): string | null {
   try {
-    const dom = new JSDOM(html, { url });
+    const virtualConsole = new VirtualConsole();
+    virtualConsole.on("jsdomError", (error) => {
+      if (error.message.includes("Could not parse CSS stylesheet")) {
+        return;
+      }
+      console.warn("[readability] jsdom warning", error.message);
+    });
+
+    const dom = new JSDOM(html, { url, virtualConsole });
     const reader = new Readability(dom.window.document);
     const article = reader.parse();
     return article?.textContent?.trim() || null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Formats text into a short one-line snippet for debug logs.
+ *
+ * @param text - Source text to summarize.
+ * @param maxLength - Maximum snippet size.
+ * @returns Sanitized single-line preview string.
+ */
+function toLogSnippet(text: string, maxLength = 180): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+/**
+ * Resolves a promise with a hard timeout to avoid indefinite waits.
+ *
+ * @param promise - Underlying async operation.
+ * @param timeoutMs - Maximum allowed duration in milliseconds.
+ * @param errorMessage - Error message returned on timeout.
+ * @returns Promise result when completed within timeout.
+ */
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  errorMessage: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -486,9 +537,14 @@ async function scrapeWithFirecrawl(url: string): Promise<string | null> {
 async function scrapePolicyPages(
   urls: string[],
   emit: StreamEmitter,
-): Promise<{ policyText: string; successfulUrls: string[] }> {
+): Promise<{
+  policyText: string;
+  successfulUrls: string[];
+  sections: PolicySection[];
+}> {
   const chunks: string[] = [];
   const successfulUrls: string[] = [];
+  const sections: PolicySection[] = [];
 
   for (let index = 0; index < urls.length; index += 1) {
     const url = urls[index];
@@ -510,15 +566,25 @@ async function scrapePolicyPages(
         console.warn(`[readability] fetch failed with status ${res.status} for ${url}`);
       } else {
         const html = await res.text();
+        console.info(`[readability] fetched html for ${url} (len=${html.length})`);
         text = extractReadableText(html, url);
+        if (text) {
+          console.info(
+            `[readability] extracted text for ${url} (len=${text.length}, snippet="${toLogSnippet(
+              text,
+            )}")`,
+          );
+        } else {
+          console.warn(`[readability] parse returned empty text for ${url}`);
+        }
       }
-    } catch {
-      console.warn(`[readability] fetch threw for ${url}`);
+    } catch (error) {
+      console.warn(`[readability] fetch threw for ${url}`, error);
     }
 
     if (!text || text.length < 120) {
       console.warn(
-        `[readability] extraction weak for ${url}; attempting Firecrawl fallback`,
+        `[readability] extraction weak for ${url}; text_len=${text?.length ?? 0}; attempting Firecrawl fallback`,
       );
       const fallbackText = await scrapeWithFirecrawl(url);
       if (!fallbackText || fallbackText.length < 120) {
@@ -527,14 +593,19 @@ async function scrapePolicyPages(
       }
 
       text = fallbackText;
-      console.info(`[firecrawl] fallback succeeded for ${url}`);
+      console.info(
+        `[firecrawl] fallback succeeded for ${url} (len=${fallbackText.length}, snippet="${fallbackText
+          .slice(0, 180)
+          .replace(/\s+/g, " ")}")`,
+      );
     }
 
     successfulUrls.push(url);
+    sections.push({ url, text });
     chunks.push(`Source: ${url}\n${text}`);
   }
 
-  return { policyText: chunks.join("\n\n---\n\n"), successfulUrls };
+  return { policyText: chunks.join("\n\n---\n\n"), successfulUrls, sections };
 }
 
 /**
@@ -543,27 +614,172 @@ async function scrapePolicyPages(
  * @param policyText - Combined textual policy content.
  * @returns Structured policy object aligned with database fields.
  */
-async function extractPolicyData(policyText: string): Promise<ExtractedPolicy> {
-  const result = await generateText({
-    model: openrouter.chat(policyExtractionModelId),
-    output: Output.object({
-      schema: extractedPolicySchema,
-      name: "StorePolicyExtraction",
-      description: "Structured shipping and returns policy fields for onboarding",
-    }),
-    temperature: 0,
-    prompt: [
-      "You are extracting ecommerce shipping and returns policy data.",
-      "Return only facts grounded in the provided text.",
-      "If unknown, return null values.",
-      "Set confidence to one of: low, medium, high.",
-      "",
-      "Policy text:",
-      policyText.slice(0, 25000),
-    ].join("\n"),
+async function extractPolicyDataBatch(extractionInput: string): Promise<ExtractedPolicy> {
+  console.info(
+    `[extract] starting model call model=${policyExtractionModelId} input_len=${extractionInput.length} timeout_ms=${EXTRACTION_TIMEOUT_MS}`,
+  );
+
+  try {
+    const result = await withTimeout(
+      generateText({
+        model: openrouter.chat(policyExtractionModelId),
+        output: Output.object({
+          schema: extractedPolicySchema,
+          name: "StorePolicyExtraction",
+          description: "Structured shipping and returns policy fields for onboarding",
+        }),
+        temperature: 0,
+        prompt: [
+          "You are extracting ecommerce shipping and returns policy data.",
+          "Return only facts grounded in the provided text.",
+          "If unknown, return null values.",
+          "Set confidence to one of: low, medium, high.",
+          "",
+          "Policy text:",
+          extractionInput,
+        ].join("\n"),
+      }),
+      EXTRACTION_TIMEOUT_MS,
+      "AI extraction timed out after 60s. Try again.",
+    );
+
+    console.info("[extract] model call completed", { usage: result.usage ?? null });
+    return extractedPolicySchema.parse(result.output);
+  } catch (error) {
+    console.error("[extract] model extraction failed", error);
+    throw error instanceof Error
+      ? error
+      : new Error("AI extraction failed unexpectedly.");
+  }
+}
+
+/**
+ * Builds extraction batches from all discovered policy sections.
+ *
+ * Each source contributes a capped text slice so we keep coverage across many URLs
+ * without blowing up a single model call context.
+ *
+ * @param sections - Successfully scraped policy sections.
+ * @returns One or more extraction input batches.
+ */
+function buildExtractionBatches(sections: PolicySection[]): string[] {
+  const entries = sections.map((section) => {
+    const clipped = section.text.slice(0, EXTRACTION_SOURCE_MAX_CHARS);
+    return `Source: ${section.url}\n${clipped}`;
   });
 
-  return extractedPolicySchema.parse(result.output);
+  const batches: string[] = [];
+  let currentBatch = "";
+
+  for (const entry of entries) {
+    const entryWithSeparator = currentBatch
+      ? `\n\n---\n\n${entry}`
+      : entry;
+
+    if ((currentBatch + entryWithSeparator).length <= EXTRACTION_INPUT_MAX_CHARS) {
+      currentBatch += entryWithSeparator;
+      continue;
+    }
+
+    if (currentBatch) {
+      batches.push(currentBatch);
+    }
+
+    currentBatch =
+      entry.length <= EXTRACTION_INPUT_MAX_CHARS
+        ? entry
+        : entry.slice(0, EXTRACTION_INPUT_MAX_CHARS);
+  }
+
+  if (currentBatch) {
+    batches.push(currentBatch);
+  }
+
+  return batches;
+}
+
+/**
+ * Merges multiple structured extraction outputs into one payload.
+ *
+ * @param partials - Per-batch extraction results.
+ * @returns Combined extraction with best-effort field coverage.
+ */
+function mergeExtractedPolicies(partials: ExtractedPolicy[]): ExtractedPolicy {
+  const scalar = <T>(selector: (item: ExtractedPolicy) => T | null | undefined): T | null => {
+    for (const item of partials) {
+      const value = selector(item);
+      if (value !== null && value !== undefined && value !== "") {
+        return value as T;
+      }
+    }
+    return null;
+  };
+
+  const uniqueList = (
+    selector: (item: ExtractedPolicy) => string[] | null | undefined,
+  ): string[] | null => {
+    const merged = [...new Set(partials.flatMap((item) => selector(item) ?? []))];
+    return merged.length > 0 ? merged : null;
+  };
+
+  const confidenceRank = { low: 1, medium: 2, high: 3 } as const;
+  const confidence =
+    partials
+      .map((item) => (item.confidence ?? "").toLowerCase())
+      .filter((value): value is "low" | "medium" | "high" =>
+        value === "low" || value === "medium" || value === "high",
+      )
+      .sort((a, b) => confidenceRank[b] - confidenceRank[a])[0] ?? null;
+
+  return {
+    confidence,
+    notes: scalar((item) => item.notes ?? null),
+    carriers: uniqueList((item) => item.carriers),
+    domestic_duration: scalar((item) => item.domestic_duration ?? null),
+    international_available: scalar((item) => item.international_available ?? null),
+    free_shipping_threshold: scalar((item) => item.free_shipping_threshold ?? null),
+    processing_time: scalar((item) => item.processing_time ?? null),
+    return_window_days: scalar((item) => item.return_window_days ?? null),
+    return_window_desc: scalar((item) => item.return_window_desc ?? null),
+    non_returnable_items: uniqueList((item) => item.non_returnable_items),
+    exchanges_available: scalar((item) => item.exchanges_available ?? null),
+    return_fee: scalar((item) => item.return_fee ?? null),
+    exchange_fee: scalar((item) => item.exchange_fee ?? null),
+    refund_methods: uniqueList((item) => item.refund_methods),
+    condition_required: scalar((item) => item.condition_required ?? null),
+  };
+}
+
+/**
+ * Runs structured extraction in multiple batches and merges results.
+ *
+ * @param sections - Scraped policy sections across discovered URLs.
+ * @param emit - SSE emitter used for extraction progress updates.
+ * @returns Merged structured extraction object.
+ */
+async function extractPolicyData(
+  sections: PolicySection[],
+  emit: StreamEmitter,
+): Promise<ExtractedPolicy> {
+  const batches = buildExtractionBatches(sections);
+  if (batches.length === 0) {
+    throw new Error("No extraction batches were produced from scraped policy text.");
+  }
+
+  const partials: ExtractedPolicy[] = [];
+  for (let index = 0; index < batches.length; index += 1) {
+    const progress = 72 + Math.round(((index + 1) / batches.length) * 10);
+    await emit("progress", {
+      step: "extract",
+      message: `Extracting structured fields from batch ${index + 1}/${batches.length}`,
+      percent: progress,
+    });
+
+    const extracted = await extractPolicyDataBatch(batches[index]);
+    partials.push(extracted);
+  }
+
+  return mergeExtractedPolicies(partials);
 }
 
 /**
@@ -627,13 +843,37 @@ export function buildOnboardingInsights(policy: {
  * Creates a store row and returns its identifier.
  *
  * @param input - Minimal store identity payload.
- * @returns Created store id with initial status.
+ * @returns Store id with status and whether an existing store was reused.
  */
 export async function createStore(input: {
   url: string;
   name: string;
-}): Promise<{ storeId: string; status: "analyzing" }> {
+}): Promise<{
+  storeId: string;
+  status: "analyzing" | "ready";
+  reused: boolean;
+}> {
   const normalizedUrl = input.url.trim().replace(/\/$/, "");
+
+  const existingStore = await db.query.stores.findFirst({
+    where: eq(stores.url, normalizedUrl),
+    orderBy: [desc(stores.created_at), desc(stores.id)],
+    columns: { id: true },
+  });
+
+  if (existingStore) {
+    const existingPolicy = await db.query.storePolicies.findFirst({
+      where: eq(storePolicies.store_id, existingStore.id),
+      columns: { id: true },
+    });
+
+    return {
+      storeId: existingStore.id,
+      status: existingPolicy ? "ready" : "analyzing",
+      reused: true,
+    };
+  }
+
   const [created] = await db
     .insert(stores)
     .values({
@@ -642,7 +882,11 @@ export async function createStore(input: {
     })
     .returning({ id: stores.id });
 
-  return { storeId: created.id, status: "analyzing" };
+  return {
+    storeId: created.id,
+    status: "analyzing",
+    reused: false,
+  };
 }
 
 /**
@@ -694,7 +938,7 @@ export async function analyzeStorePolicies(
     message: "Extracting readable policy text from discovered pages",
     percent: 30,
   });
-  const { policyText, successfulUrls } = await scrapePolicyPages(
+  const { policyText, successfulUrls, sections } = await scrapePolicyPages(
     discovery.urls,
     emit,
   );
@@ -708,7 +952,17 @@ export async function analyzeStorePolicies(
     message: "Using AI structured output to extract shipping and returns fields",
     percent: 70,
   });
-  const extracted = await extractPolicyData(policyText);
+  await emit("progress", {
+    step: "extract",
+    message: "Preparing extraction batches from scraped policy sections",
+    percent: 72,
+  });
+  const extracted = await extractPolicyData(sections, emit);
+  await emit("progress", {
+    step: "extract",
+    message: "Merged structured extraction output",
+    percent: 82,
+  });
 
   await emit("stage", {
     step: "persist",
