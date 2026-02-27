@@ -13,7 +13,7 @@ import {
 const app = new Hono().basePath("/api");
 
 const createStoreSchema = z.object({
-  url: z.url(),
+  url: z.string().url(),
   name: z.string().min(1),
 });
 
