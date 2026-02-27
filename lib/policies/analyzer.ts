@@ -1,4 +1,5 @@
 import { Readability } from "@mozilla/readability";
+import Firecrawl from "@mendable/firecrawl-js";
 import { generateText, Output } from "ai";
 import { load } from "cheerio";
 import { and, desc, eq } from "drizzle-orm";
@@ -71,6 +72,9 @@ const policyExtractionModelId =
 const openrouter = createOpenRouter({
   apiKey: env.OPENROUTER_API_KEY,
 });
+const firecrawl = env.FIRECRAWL_API_KEY
+  ? new Firecrawl({ apiKey: env.FIRECRAWL_API_KEY })
+  : null;
 
 export type StreamEventName =
   | "stage"
@@ -425,6 +429,55 @@ function extractReadableText(html: string, url: string): string | null {
 }
 
 /**
+ * Scrapes page text with Firecrawl as fallback when Readability extraction fails.
+ *
+ * @param url - Target page URL to scrape.
+ * @returns Fallback text content, or null when unavailable.
+ */
+async function scrapeWithFirecrawl(url: string): Promise<string | null> {
+  if (!firecrawl) {
+    console.warn("[firecrawl] skipped fallback because FIRECRAWL_API_KEY is missing");
+    return null;
+  }
+
+  try {
+    const result = await firecrawl.scrape(url);
+    const payload = result as
+      | {
+          markdown?: string;
+          content?: string;
+          text?: string;
+          data?: {
+            markdown?: string;
+            content?: string;
+            text?: string;
+          };
+        }
+      | null
+      | undefined;
+
+    const candidateText =
+      payload?.markdown ??
+      payload?.content ??
+      payload?.text ??
+      payload?.data?.markdown ??
+      payload?.data?.content ??
+      payload?.data?.text ??
+      null;
+
+    if (!candidateText?.trim()) {
+      console.warn(`[firecrawl] fallback returned empty content for ${url}`);
+      return null;
+    }
+
+    return candidateText.trim();
+  } catch (error) {
+    console.error(`[firecrawl] fallback failed for ${url}`, error);
+    return null;
+  }
+}
+
+/**
  * Scrapes policy pages and extracts plain text blocks for analysis.
  *
  * @param urls - Policy URLs to fetch.
@@ -447,25 +500,50 @@ async function scrapePolicyPages(
       urls: [url],
     });
 
+    let text: string | null = null;
+
     try {
       const res = await fetch(url, {
         signal: AbortSignal.timeout(9000),
         headers: BROWSERISH_HEADERS,
       });
       if (!res.ok) {
-        continue;
+        console.warn(`[readability] fetch failed with status ${res.status} for ${url}`);
+      } else {
+        const html = await res.text();
+        text = extractReadableText(html, url);
       }
-      const html = await res.text();
-      const text = extractReadableText(html, url);
-      if (!text || text.length < 120) {
+    } catch {
+      console.warn(`[readability] fetch threw for ${url}`);
+    }
+
+    if (!text || text.length < 120) {
+      await emit("warning", {
+        step: "scrape",
+        message: `Readability extraction was weak for ${url}; trying Firecrawl fallback`,
+        urls: [url],
+      });
+
+      const fallbackText = await scrapeWithFirecrawl(url);
+      if (!fallbackText || fallbackText.length < 120) {
+        await emit("warning", {
+          step: "scrape",
+          message: `Firecrawl fallback failed for ${url}`,
+          urls: [url],
+        });
         continue;
       }
 
-      successfulUrls.push(url);
-      chunks.push(`Source: ${url}\n${text}`);
-    } catch {
-      continue;
+      text = fallbackText;
+      await emit("progress", {
+        step: "scrape",
+        message: `Firecrawl fallback succeeded for ${url}`,
+        urls: [url],
+      });
     }
+
+    successfulUrls.push(url);
+    chunks.push(`Source: ${url}\n${text}`);
   }
 
   return { policyText: chunks.join("\n\n---\n\n"), successfulUrls };
@@ -497,7 +575,7 @@ async function extractPolicyData(policyText: string): Promise<ExtractedPolicy> {
     ].join("\n"),
   });
 
-  return result.output;
+  return extractedPolicySchema.parse(result.output);
 }
 
 /**
