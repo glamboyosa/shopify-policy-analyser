@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   analyzeStorePolicies,
+  askPolicyQuestion,
   createStore,
   getLatestPolicy,
 } from "@/lib/policies/analyzer";
@@ -50,6 +51,28 @@ app.get("/stores/:storeId/policies", async (c) => {
     return c.json({ error: "No policy analysis found for this store." }, 404);
   }
   return c.json(policy);
+});
+
+app.get("/stores/:storeId/policies/ask", async (c) => {
+  const storeId = c.req.param("storeId");
+  const question = c.req.query("q")?.trim();
+
+  if (!question) {
+    return c.json({ error: "Missing required query parameter: q" }, 400);
+  }
+
+  try {
+    const result = await askPolicyQuestion({
+      storeId,
+      question,
+    });
+    return c.json(result);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Policy question failed.";
+    const status = /No policy analysis found/i.test(message) ? 404 : 400;
+    return c.json({ error: message }, status);
+  }
 });
 
 app.get("/stores/:storeId/policies/stream", async (c) => {

@@ -727,6 +727,66 @@ export async function getLatestPolicy(storeId: string): Promise<{
 }
 
 /**
+ * Answers a freeform question using the latest stored policy text for a store.
+ *
+ * @param input - Store/question payload used for grounded Q&A.
+ * @returns Answer text with policy metadata for the response surface.
+ */
+export async function askPolicyQuestion(input: {
+  storeId: string;
+  question: string;
+}): Promise<{
+  answer: string;
+  policyId: string;
+  analyzedAt: Date | null;
+}> {
+  if (!env.OPENROUTER_API_KEY) {
+    throw new Error("OPENROUTER_API_KEY is required for policy Q&A.");
+  }
+
+  const latestPolicy = await db.query.storePolicies.findFirst({
+    where: eq(storePolicies.store_id, input.storeId),
+    orderBy: [desc(storePolicies.analyzed_at), desc(storePolicies.id)],
+    columns: {
+      id: true,
+      analyzed_at: true,
+      policy_text: true,
+    },
+  });
+
+  if (!latestPolicy) {
+    throw new Error("No policy analysis found for this store.");
+  }
+
+  const policyText = latestPolicy.policy_text?.trim();
+  if (!policyText) {
+    throw new Error("Policy text is empty for this store.");
+  }
+
+  const result = await generateText({
+    model: openrouter.chat(policyExtractionModelId),
+    temperature: 0.2,
+    system: [
+      "You answer merchant onboarding questions strictly using the supplied policy text.",
+      "If the answer is not clearly present, say you are unsure and what is missing.",
+      "Be concise and practical.",
+    ].join(" "),
+    prompt: [
+      `Question: ${input.question.trim()}`,
+      "",
+      "Policy text:",
+      policyText.slice(0, 30000),
+    ].join("\n"),
+  });
+
+  return {
+    answer: result.text.trim(),
+    policyId: latestPolicy.id,
+    analyzedAt: latestPolicy.analyzed_at ?? null,
+  };
+}
+
+/**
  * Checks whether a policy row already exists for a store.
  *
  * @param storeId - Store identifier.
