@@ -1,0 +1,213 @@
+{
+  "id": "c6e27b1f-125d-4e10-962c-3a14ee2ec80b",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.store_policies": {
+      "name": "store_policies",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "store_id": {
+          "name": "store_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "analyzed_at": {
+          "name": "analyzed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "sources_found": {
+          "name": "sources_found",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "carriers": {
+          "name": "carriers",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "domestic_duration": {
+          "name": "domestic_duration",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "international_available": {
+          "name": "international_available",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "free_shipping_threshold": {
+          "name": "free_shipping_threshold",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processing_time": {
+          "name": "processing_time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "return_window_days": {
+          "name": "return_window_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "return_window_desc": {
+          "name": "return_window_desc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "non_returnable_items": {
+          "name": "non_returnable_items",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "exchanges_available": {
+          "name": "exchanges_available",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "return_fee": {
+          "name": "return_fee",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "exchange_fee": {
+          "name": "exchange_fee",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refund_methods": {
+          "name": "refund_methods",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "condition_required": {
+          "name": "condition_required",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_json": {
+          "name": "raw_json",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "policy_text": {
+          "name": "policy_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "store_policies_store_id_stores_id_fk": {
+          "name": "store_policies_store_id_stores_id_fk",
+          "tableFrom": "store_policies",
+          "tableTo": "stores",
+          "columnsFrom": [
+            "store_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.stores": {
+      "name": "stores",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

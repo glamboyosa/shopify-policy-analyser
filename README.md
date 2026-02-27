@@ -6,7 +6,7 @@ Store policy analyzer foundation for Shopify-focused onboarding.
 
 - Next.js App Router
 - Hono (`/api/*` catch-all route)
-- Drizzle ORM + Postgres (`postgres` driver)
+- Drizzle ORM + Postgres (Bun SQL driver)
 - Tailwind + shadcn/ui
 - Typed env validation via `@t3-oss/env-nextjs` + `zod`
 
@@ -40,7 +40,15 @@ cp .env.example .env
 make db-up
 ```
 
-4. Push Drizzle schema:
+4. Generate and apply Drizzle migrations:
+
+```bash
+make db-generate
+make db-migrate
+make db-verify
+```
+
+If you want a fast local sync without versioned migration files, you can still run:
 
 ```bash
 make db-push
@@ -66,7 +74,10 @@ App runs through Portless at:
 - Stop DB: `make db-down`
 - DB logs: `make db-logs`
 - SQL shell: `make db-psql`
+- Generate migrations: `make db-generate`
+- Apply migrations: `make db-migrate`
 - Push schema: `make db-push`
+- Verify tables: `make db-verify`
 - Open Drizzle Studio: `make db-studio`
 
 ## Quality checks
