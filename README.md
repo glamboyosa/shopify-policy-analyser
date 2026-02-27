@@ -16,6 +16,9 @@ Store policy analyzer foundation for Shopify-focused onboarding.
 - Docker
 - Portless installed globally
 
+Database note: this project intentionally uses `127.0.0.1:5433` for Docker Postgres
+to avoid conflicts with any host Postgres already using `localhost:5432`.
+
 ```bash
 npm install -g portless
 ```

@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-DATABASE_URL ?= postgres://postgres:postgres@localhost:5432/pango_policy
+DATABASE_URL ?= postgres://postgres:postgres@127.0.0.1:5433/pango_policy
 
 .PHONY: help db-up db-down db-logs db-psql db-generate db-migrate db-push db-studio db-verify dev lint typecheck
 
