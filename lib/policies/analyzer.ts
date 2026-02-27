@@ -70,7 +70,7 @@ const extractedPolicySchema = z.object({
 });
 
 const policyExtractionModelId =
-  env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.6";
+  env.OPENROUTER_MODEL ?? "google/gemini-3-flash-preview";
 
 const openrouter = createOpenRouter({
   apiKey: env.OPENROUTER_API_KEY,
