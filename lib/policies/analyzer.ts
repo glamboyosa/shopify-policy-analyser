@@ -79,7 +79,6 @@ const firecrawl = env.FIRECRAWL_API_KEY
 export type StreamEventName =
   | "stage"
   | "progress"
-  | "warning"
   | "error"
   | "complete";
 
@@ -518,28 +517,17 @@ async function scrapePolicyPages(
     }
 
     if (!text || text.length < 120) {
-      await emit("warning", {
-        step: "scrape",
-        message: `Readability extraction was weak for ${url}; trying Firecrawl fallback`,
-        urls: [url],
-      });
-
+      console.warn(
+        `[readability] extraction weak for ${url}; attempting Firecrawl fallback`,
+      );
       const fallbackText = await scrapeWithFirecrawl(url);
       if (!fallbackText || fallbackText.length < 120) {
-        await emit("warning", {
-          step: "scrape",
-          message: `Firecrawl fallback failed for ${url}`,
-          urls: [url],
-        });
+        console.warn(`[scrape] skipping ${url} because fallback also failed`);
         continue;
       }
 
       text = fallbackText;
-      await emit("progress", {
-        step: "scrape",
-        message: `Firecrawl fallback succeeded for ${url}`,
-        urls: [url],
-      });
+      console.info(`[firecrawl] fallback succeeded for ${url}`);
     }
 
     successfulUrls.push(url);

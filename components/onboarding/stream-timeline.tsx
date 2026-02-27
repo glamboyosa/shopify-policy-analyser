@@ -28,6 +28,7 @@ function getProgressPercent(events: StreamEvent[]): number {
 }
 
 export function StreamTimeline({ events }: StreamTimelineProps) {
+  const visibleEvents = events.filter((event) => event.event !== "error");
   const progressPercent = getProgressPercent(events);
   const streamError = events.find((event) => event.event === "error");
 
@@ -48,10 +49,10 @@ export function StreamTimeline({ events }: StreamTimelineProps) {
         </div>
 
         <div className="max-h-56 space-y-2 overflow-auto rounded border p-3">
-          {events.length === 0 ? (
+          {visibleEvents.length === 0 ? (
             <p className="text-muted-foreground">No events yet. Start an analysis run.</p>
           ) : (
-            events.map((event, index) => (
+            visibleEvents.map((event, index) => (
               <div
                 key={`${event.event}-${index}`}
                 className="flex items-start justify-between gap-3 text-xs"
