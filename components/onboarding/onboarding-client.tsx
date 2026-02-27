@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -13,6 +13,7 @@ import { AnalysisForm } from "@/components/onboarding/analysis-form";
 import { InsightsCards } from "@/components/onboarding/insights-cards";
 import { PolicyChat } from "@/components/onboarding/policy-chat";
 import { StreamTimeline } from "@/components/onboarding/stream-timeline";
+import { Button } from "@/components/ui/button";
 import {
   askStorePolicyQuestion,
   createStoreRequest,
@@ -20,6 +21,7 @@ import {
 } from "@/lib/policies/api-client";
 import type { ChatMessage, StreamEvent } from "@/lib/policies/client-types";
 import {
+  clearOnboardingSnapshot,
   loadChatMessages,
   loadOnboardingSnapshot,
   saveChatMessages,
@@ -133,16 +135,11 @@ function OnboardingContent() {
 
   const summaryCard = policyQuery.data?.summaryCard ?? [];
   const warnings = policyQuery.data?.warnings ?? [];
-
-  const streamStatusLine = useMemo(() => {
-    if (streamQuery.isFetching) {
-      return "Live analysis in progress...";
-    }
-    if (analysisCompleted) {
-      return "Showing persisted onboarding results.";
-    }
-    return "Start an analysis run to populate onboarding cards.";
-  }, [analysisCompleted, streamQuery.isFetching]);
+  const onboardingPhase = analysisCompleted
+    ? "done"
+    : storeId && streamRun > 0
+      ? "analyzing"
+      : "input";
 
   /**
    * Starts a new analysis run for the submitted store.
@@ -201,28 +198,68 @@ function OnboardingContent() {
     }
   }
 
+  /**
+   * Resets local onboarding state so user can start a new analysis flow.
+   *
+   * @returns Nothing.
+   */
+  function handleStartAnotherStore(): void {
+    setStoreId(null);
+    setStreamRun(0);
+    setAnalysisCompleted(false);
+    setChatMessages([]);
+    clearOnboardingSnapshot();
+    queryClient.removeQueries({ queryKey: ["policy-stream"] });
+    queryClient.removeQueries({ queryKey: ["store-policy"] });
+  }
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 p-4 md:p-8">
-      <AnalysisForm
-        storeUrl={storeUrl}
-        storeName={storeName}
-        storeId={storeId}
-        isSubmitting={isSubmitting}
-        onStoreUrlChange={setStoreUrl}
-        onStoreNameChange={setStoreName}
-        onSubmit={handleAnalyze}
-      />
+      {onboardingPhase === "input" ? (
+        <AnalysisForm
+          storeUrl={storeUrl}
+          storeName={storeName}
+          storeId={storeId}
+          isSubmitting={isSubmitting}
+          onStoreUrlChange={setStoreUrl}
+          onStoreNameChange={setStoreName}
+          onSubmit={handleAnalyze}
+        />
+      ) : null}
 
-      <p className="text-muted-foreground px-1 text-xs">{streamStatusLine}</p>
+      {onboardingPhase === "analyzing" ? (
+        <>
+          <p className="text-muted-foreground px-1 text-xs">
+            Live analysis in progress...
+          </p>
+          <StreamTimeline events={streamEvents} />
+        </>
+      ) : null}
 
-      <StreamTimeline events={streamEvents} />
-      <InsightsCards summaryCard={summaryCard} warnings={warnings} />
-      <PolicyChat
-        storeId={storeId}
-        isAsking={askMutation.isPending}
-        messages={chatMessages}
-        onAsk={handleAsk}
-      />
+      {onboardingPhase === "done" ? (
+        <>
+          <div className="flex items-center justify-between gap-2 px-1">
+            <p className="text-muted-foreground text-xs">
+              Onboarding complete. Showing persisted store policy insights.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleStartAnotherStore}
+            >
+              Analyze Another Store
+            </Button>
+          </div>
+          <InsightsCards summaryCard={summaryCard} warnings={warnings} />
+          <PolicyChat
+            storeId={storeId}
+            isAsking={askMutation.isPending}
+            messages={chatMessages}
+            onAsk={handleAsk}
+          />
+        </>
+      ) : null}
     </main>
   );
 }

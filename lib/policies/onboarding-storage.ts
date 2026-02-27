@@ -43,6 +43,15 @@ export function saveOnboardingSnapshot(snapshot: OnboardingSnapshot): void {
 }
 
 /**
+ * Clears persisted onboarding snapshot from localStorage.
+ *
+ * @returns Nothing.
+ */
+export function clearOnboardingSnapshot(): void {
+  localStorage.removeItem(ONBOARDING_STATE_KEY);
+}
+
+/**
  * Loads locally persisted chat history for a store.
  *
  * @param storeId - Store identifier.
