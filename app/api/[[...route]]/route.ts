@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { handle } from "hono/vercel";
 import { z } from "zod";
@@ -11,17 +11,67 @@ import {
 } from "@/lib/policies/analyzer";
 
 const app = new Hono().basePath("/api");
+const MAX_TRIES_PER_IP = 5;
+const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const ipAttempts = new Map<string, number[]>();
 
 const createStoreSchema = z.object({
   url: z.string().url(),
   name: z.string().min(1),
 });
 
+/**
+ * Resolves request IP from common proxy headers with fallback.
+ *
+ * @param c - Hono context for current request.
+ * @returns Best-effort IP identifier used for rate limiting.
+ */
+function getRequestIp(c: Context): string {
+  const forwardedFor = c.req.header("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0].trim();
+  }
+  return c.req.header("x-real-ip") ?? c.req.header("cf-connecting-ip") ?? "unknown";
+}
+
+/**
+ * Applies lazy in-memory IP rate limiting for store analysis attempts.
+ *
+ * @param ip - Caller IP string.
+ * @returns Remaining attempts and whether request is allowed.
+ */
+function consumeIpAttempt(ip: string): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const attempts = ipAttempts.get(ip) ?? [];
+  const withinWindow = attempts.filter((timestamp) => now - timestamp < RATE_LIMIT_WINDOW_MS);
+
+  if (withinWindow.length >= MAX_TRIES_PER_IP) {
+    ipAttempts.set(ip, withinWindow);
+    return { allowed: false, remaining: 0 };
+  }
+
+  withinWindow.push(now);
+  ipAttempts.set(ip, withinWindow);
+  return { allowed: true, remaining: MAX_TRIES_PER_IP - withinWindow.length };
+}
+
 app.get("/health", (c) => {
   return c.json({ ok: true, service: "pango-policy-api" });
 });
 
 app.post("/stores", async (c) => {
+  const ip = getRequestIp(c);
+  const rateLimit = consumeIpAttempt(ip);
+  if (!rateLimit.allowed) {
+    return c.json(
+      {
+        error: "Try limit reached for your IP. Please retry tomorrow.",
+        remaining: rateLimit.remaining,
+      },
+      429,
+    );
+  }
+
   const rawInput = await c.req.json().catch(() => null);
   const parsedInput = createStoreSchema.safeParse(rawInput);
   if (!parsedInput.success) {

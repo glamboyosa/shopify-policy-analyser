@@ -24,6 +24,8 @@ export const storePolicies = pgTable("store_policies", {
   sources_found: text("sources_found").array(),
   confidence: text("confidence"),
   notes: text("notes"),
+  default_region: text("default_region"),
+  region_overrides: jsonb("region_overrides"),
 
   carriers: text("carriers").array(),
   domestic_duration: text("domestic_duration"),

@@ -1,10 +1,10 @@
 import { Readability } from "@mozilla/readability";
 import Firecrawl from "@mendable/firecrawl-js";
+import { google } from "@ai-sdk/google";
 import { generateText, Output } from "ai";
 import { load } from "cheerio";
 import { and, desc, eq } from "drizzle-orm";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { parseStringPromise } from "xml2js";
 import { z } from "zod";
 
@@ -57,6 +57,21 @@ const EXTRACTION_TIMEOUT_MS = 60000;
 const extractedPolicySchema = z.object({
   confidence: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  default_region: z.string().nullable().optional(),
+  region_overrides: z
+    .array(
+      z.object({
+        region: z.string(),
+        shipping_details: z.string().nullable().optional(),
+        return_window_days: z.number().int().nullable().optional(),
+        return_window_desc: z.string().nullable().optional(),
+        free_shipping_threshold: z.string().nullable().optional(),
+        exchanges_available: z.boolean().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
   carriers: z.array(z.string()).nullable().optional(),
   domestic_duration: z.string().nullable().optional(),
   international_available: z.boolean().nullable().optional(),
@@ -70,13 +85,6 @@ const extractedPolicySchema = z.object({
   exchange_fee: z.string().nullable().optional(),
   refund_methods: z.array(z.string()).nullable().optional(),
   condition_required: z.string().nullable().optional(),
-});
-
-const policyExtractionModelId =
-  env.OPENROUTER_MODEL ?? "google/gemini-3-flash-preview";
-
-const openrouter = createOpenRouter({
-  apiKey: env.OPENROUTER_API_KEY,
 });
 const firecrawl = env.FIRECRAWL_API_KEY
   ? new Firecrawl({ apiKey: env.FIRECRAWL_API_KEY })
@@ -666,13 +674,13 @@ async function scrapePolicyPages(
  */
 async function extractPolicyDataBatch(extractionInput: string): Promise<ExtractedPolicy> {
   console.info(
-    `[extract] starting model call model=${policyExtractionModelId} input_len=${extractionInput.length} timeout_ms=${EXTRACTION_TIMEOUT_MS}`,
+    `[extract] starting model call model=gemini-3-flash input_len=${extractionInput.length} timeout_ms=${EXTRACTION_TIMEOUT_MS}`,
   );
 
   try {
     const result = await withTimeout(
       generateText({
-        model: openrouter.chat(policyExtractionModelId),
+        model: google("gemini-3-flash"),
         output: Output.object({
           schema: extractedPolicySchema,
           name: "StorePolicyExtraction",
@@ -683,6 +691,7 @@ async function extractPolicyDataBatch(extractionInput: string): Promise<Extracte
           "You are extracting ecommerce shipping and returns policy data.",
           "Return only facts grounded in the provided text.",
           "If unknown, return null values.",
+          "If policy terms differ by region, set default_region and include region_overrides.",
           "Set confidence to one of: low, medium, high.",
           "",
           "Policy text:",
@@ -784,6 +793,11 @@ function mergeExtractedPolicies(partials: ExtractedPolicy[]): ExtractedPolicy {
   return {
     confidence,
     notes: scalar((item) => item.notes ?? null),
+    default_region: scalar((item) => item.default_region ?? null),
+    region_overrides:
+      partials.flatMap((item) => item.region_overrides ?? []).length > 0
+        ? partials.flatMap((item) => item.region_overrides ?? [])
+        : null,
     carriers: uniqueList((item) => item.carriers),
     domestic_duration: scalar((item) => item.domestic_duration ?? null),
     international_available: scalar((item) => item.international_available ?? null),
@@ -992,8 +1006,8 @@ export async function analyzeStorePolicies(
   summaryCard: string[];
   warnings: string[];
 }> {
-  if (!env.OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY is required for policy analysis.");
+  if (!env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is required for policy analysis.");
   }
 
   const store = await db.query.stores.findFirst({
@@ -1065,6 +1079,8 @@ export async function analyzeStorePolicies(
       sources_found: discovery.source,
       confidence: extracted.confidence ?? null,
       notes: extracted.notes ?? null,
+      default_region: extracted.default_region ?? null,
+      region_overrides: extracted.region_overrides ?? null,
       carriers: extracted.carriers ?? null,
       domestic_duration: extracted.domestic_duration ?? null,
       international_available: extracted.international_available ?? null,
@@ -1148,8 +1164,8 @@ export async function askPolicyQuestion(input: {
   policyId: string;
   analyzedAt: Date | null;
 }> {
-  if (!env.OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY is required for policy Q&A.");
+  if (!env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is required for policy Q&A.");
   }
 
   const latestPolicy = await db.query.storePolicies.findFirst({
@@ -1172,7 +1188,7 @@ export async function askPolicyQuestion(input: {
   }
 
   const result = await generateText({
-    model: openrouter.chat(policyExtractionModelId),
+    model: google("gemini-3-flash"),
     temperature: 0.2,
     system: [
       "You answer merchant onboarding questions strictly using the supplied policy text.",

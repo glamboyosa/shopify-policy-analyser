@@ -35,7 +35,16 @@ export function AnalysisForm({
       <CardHeader>
         <CardTitle>Store Policy Analyzer</CardTitle>
         <CardDescription>
-          Enter a Shopify store URL to run discovery, extraction, and onboarding insights.
+          Enter a Shopify store URL to run discovery, extraction, and onboarding
+          insights. Project repo:{" "}
+          <a
+            className="text-primary underline"
+            href="https://github.com/glamboyosa/shopify-policy-analyser"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            github.com/glamboyosa/shopify-policy-analyser
+          </a>
         </CardDescription>
       </CardHeader>
       <CardContent>
