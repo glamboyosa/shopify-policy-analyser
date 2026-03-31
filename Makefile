@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-DATABASE_URL ?= postgres://postgres:postgres@127.0.0.1:5433/pango_policy
+DATABASE_URL ?= postgres://postgres:postgres@127.0.0.1:5433/shopify_policy
 
 .PHONY: help db-up db-down db-logs db-psql db-generate db-migrate db-push db-studio db-verify dev lint typecheck
 
@@ -18,7 +18,7 @@ db-logs: ## Tail Postgres logs
 	docker compose logs -f postgres
 
 db-psql: ## Open psql shell in the Postgres container
-	docker compose exec postgres psql -U postgres -d pango_policy
+	docker compose exec postgres psql -U postgres -d shopify_policy
 
 db-generate: ## Generate Drizzle migration files from schema changes
 	DATABASE_URL="$(DATABASE_URL)" bun run db:generate
@@ -33,7 +33,7 @@ db-studio: ## Open Drizzle Studio against local database
 	DATABASE_URL="$(DATABASE_URL)" bun run db:studio
 
 db-verify: ## Verify key tables exist in Postgres
-	docker compose exec postgres psql -U postgres -d pango_policy -c "select tablename from pg_tables where schemaname = 'public' and tablename in ('stores','store_policies') order by tablename;"
+	docker compose exec postgres psql -U postgres -d shopify_policy -c "select tablename from pg_tables where schemaname = 'public' and tablename in ('stores','store_policies') order by tablename;"
 
 dev: ## Run Next.js via Portless
 	bun run dev

@@ -1,10 +1,10 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: pango-policy-postgres
+    container_name: shopify-policy-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: pango_policy
+      POSTGRES_DB: shopify_policy
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d pango_policy"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shopify_policy"]
       interval: 5s
       timeout: 5s
       retries: 10

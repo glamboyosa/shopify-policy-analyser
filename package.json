@@ -1,9 +1,9 @@
 {
-  "name": "pango-policy",
+  "name": "shopify-policy",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "portless pango-policy next dev",
+    "dev": "portless shopify-policy next dev",
     "dev:plain": "next dev",
     "build": "next build",
     "start": "next start",

@@ -87,7 +87,7 @@ App URL:
 ## Environment Variables
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/pango_policy
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/shopify_policy
 GOOGLE_GENERATIVE_AI_API_KEY=
 FIRECRAWL_API_KEY=
 ```
