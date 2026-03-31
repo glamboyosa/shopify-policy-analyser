@@ -53,7 +53,7 @@ const BROWSERISH_HEADERS = {
 };
 const EXTRACTION_INPUT_MAX_CHARS = 12000;
 const EXTRACTION_SOURCE_MAX_CHARS = 2200;
-const EXTRACTION_TIMEOUT_MS = 60000;
+const EXTRACTION_TIMEOUT_MS = 120_000;
 
 const extractedPolicySchema = z.object({
   confidence: z.string().nullable().optional(),
@@ -675,13 +675,13 @@ async function scrapePolicyPages(
  */
 async function extractPolicyDataBatch(extractionInput: string): Promise<ExtractedPolicy> {
   console.info(
-    `[extract] starting model call model=gemini-3-flash input_len=${extractionInput.length} timeout_ms=${EXTRACTION_TIMEOUT_MS}`,
+    `[extract] starting model call model=gemini-3-flash (latest) input_len=${extractionInput.length} timeout_ms=${EXTRACTION_TIMEOUT_MS}`,
   );
 
   try {
     const result = await withTimeout(
       generateText({
-        model: google("gemini-3-flash"),
+        model: google("gemini-flash-latest"),
         output: Output.object({
           schema: extractedPolicySchema,
           name: "StorePolicyExtraction",
@@ -700,7 +700,7 @@ async function extractPolicyDataBatch(extractionInput: string): Promise<Extracte
         ].join("\n"),
       }),
       EXTRACTION_TIMEOUT_MS,
-      "AI extraction timed out after 60s. Try again.",
+      "AI extraction timed out after 2 minutes. Try again.",
     );
 
     console.info("[extract] model call completed", { usage: result.usage ?? null });
@@ -1222,7 +1222,7 @@ export async function askPolicyQuestion(input: {
     .trimStart();
 
   const result = await generateText({
-    model: google("gemini-3-flash"),
+    model: google("gemini-flash-latest"),
     temperature: 0.2,
     system: [
       "You answer merchant onboarding questions using the structured digest (if present) and the full policy text.",

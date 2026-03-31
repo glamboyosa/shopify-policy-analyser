@@ -14,6 +14,8 @@ open-sourced.
 - `Gemini 3 Flash` structured extraction to keep latency and cost low.
 - SSE status updates so onboarding feels live rather than blocking.
 
+For a fuller picture (discovery, scraping, SSE, Q&A, regions, client storage), see **[docs/TECHNICAL_OVERVIEW.md](docs/TECHNICAL_OVERVIEW.md)**.
+
 ## Current Product Behavior
 
 - Analyze a store URL and discover likely shipping/returns sources.
