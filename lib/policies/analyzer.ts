@@ -11,6 +11,7 @@ import { z } from "zod";
 import { env } from "@/env";
 import { db } from "@/lib/db";
 import { storePolicies, stores } from "@/lib/db/schema";
+import { buildPolicyStructuredDigest } from "@/lib/policies/region-policy";
 
 const POLICY_REGEX = /shipping|return|refund|policy|exchange/i;
 const HOMEPAGE_LINK_REGEX =
@@ -1175,6 +1176,16 @@ export async function askPolicyQuestion(input: {
       id: true,
       analyzed_at: true,
       policy_text: true,
+      default_region: true,
+      region_overrides: true,
+      return_window_days: true,
+      return_window_desc: true,
+      free_shipping_threshold: true,
+      domestic_duration: true,
+      international_available: true,
+      exchanges_available: true,
+      processing_time: true,
+      carriers: true,
     },
   });
 
@@ -1187,20 +1198,39 @@ export async function askPolicyQuestion(input: {
     throw new Error("Policy text is empty for this store.");
   }
 
+  const structuredDigest = buildPolicyStructuredDigest({
+    default_region: latestPolicy.default_region,
+    region_overrides: latestPolicy.region_overrides,
+    return_window_days: latestPolicy.return_window_days,
+    return_window_desc: latestPolicy.return_window_desc,
+    free_shipping_threshold: latestPolicy.free_shipping_threshold,
+    domestic_duration: latestPolicy.domestic_duration,
+    international_available: latestPolicy.international_available,
+    exchanges_available: latestPolicy.exchanges_available,
+    processing_time: latestPolicy.processing_time,
+    carriers: latestPolicy.carriers,
+  });
+
+  const promptBody = [
+    structuredDigest ? `${structuredDigest}\n\n---\n` : "",
+    `Question: ${input.question.trim()}`,
+    "",
+    "Policy text:",
+    policyText.slice(0, 30000),
+  ]
+    .join("\n")
+    .trimStart();
+
   const result = await generateText({
     model: google("gemini-3-flash"),
     temperature: 0.2,
     system: [
-      "You answer merchant onboarding questions strictly using the supplied policy text.",
+      "You answer merchant onboarding questions using the structured digest (if present) and the full policy text.",
+      "When they disagree, prefer the policy text.",
       "If the answer is not clearly present, say you are unsure and what is missing.",
       "Be concise and practical.",
     ].join(" "),
-    prompt: [
-      `Question: ${input.question.trim()}`,
-      "",
-      "Policy text:",
-      policyText.slice(0, 30000),
-    ].join("\n"),
+    prompt: promptBody,
   });
 
   return {

@@ -82,7 +82,7 @@ make dev
 
 App URL:
 
-`http://pango-policy.localhost:1355`
+`http://shopify-policy.localhost:1355`
 
 ## Environment Variables
 

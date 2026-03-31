@@ -1,3 +1,5 @@
+import type { RegionOverride } from "@/lib/policies/region-policy";
+
 export type StreamPayload = {
   step?: string;
   message?: string;
@@ -20,6 +22,8 @@ export type PolicyResponse = {
   policy: {
     analyzed_at: string | null;
     confidence: string | null;
+    default_region: string | null;
+    region_overrides: RegionOverride[] | null;
   };
 };
 

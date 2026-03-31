@@ -11,6 +11,7 @@ import {
 
 import { AnalysisForm } from "@/components/onboarding/analysis-form";
 import { InsightsCards } from "@/components/onboarding/insights-cards";
+import { RegionInsights } from "@/components/onboarding/region-insights";
 import { PolicyChat } from "@/components/onboarding/policy-chat";
 import { StreamTimeline } from "@/components/onboarding/stream-timeline";
 import { Button } from "@/components/ui/button";
@@ -256,6 +257,12 @@ function OnboardingContent() {
             </Button>
           </div>
           <InsightsCards summaryCard={summaryCard} warnings={warnings} />
+          {policyQuery.data ? (
+            <RegionInsights
+              defaultRegion={policyQuery.data.policy.default_region}
+              regionOverridesRaw={policyQuery.data.policy.region_overrides}
+            />
+          ) : null}
           <PolicyChat
             storeId={storeId}
             isAsking={askMutation.isPending}
